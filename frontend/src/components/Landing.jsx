@@ -1,6 +1,6 @@
 import { motion } from 'motion/react'
 import TiltCard from './TiltCard'
-import { CompassIcon, TargetIcon, LayersIcon, ChartIcon, ArrowUpRightIcon, FlameIcon } from './icons'
+import { CompassIcon, TargetIcon, LayersIcon, ChartIcon, ArrowUpRightIcon, FlameIcon, CheckIcon } from './icons'
 
 const FEATURES = [
   {
@@ -33,6 +33,12 @@ const FEATURES = [
   },
 ]
 
+const STEPS = [
+  { n: '01', title: 'Name what you want to learn', body: 'Any subject, any level of obscurity. The roadmap is built for you.' },
+  { n: '02', title: 'Learn it, then practice it', body: 'Read the lesson, attempt an exercise, get hints if you need them.' },
+  { n: '03', title: 'Let spaced repetition do the rest', body: 'Review lands right when you\'re about to forget — not before, not after.' },
+]
+
 export default function Landing({ onGetStarted, onLogin }) {
   return (
     <div className="landing">
@@ -44,6 +50,12 @@ export default function Landing({ onGetStarted, onLogin }) {
         <button className="ghost" onClick={onLogin}>Log in</button>
       </header>
 
+      <motion.div
+        className="hero-frame landing-hero-frame"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+      >
       <section className="landing-hero">
         <motion.div
           className="hero-blob"
@@ -87,6 +99,57 @@ export default function Landing({ onGetStarted, onLogin }) {
             <FlameIcon /> free — no card required
           </span>
         </motion.div>
+
+        <motion.div
+          className="preview-mock"
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <div className="preview-mock-card">
+            <div className="preview-mock-row">
+              <span className="tag-chip small" style={{ background: '#e3f1e7', color: '#2f6b4b' }}>Arrays</span>
+              <ArrowUpRightIcon className="card-tile-arrow" />
+            </div>
+            <div className="preview-mock-title">Two Pointers</div>
+            <div className="preview-mock-bar" />
+            <div className="preview-mock-bar short" />
+            <div className="preview-mock-foot">
+              <span className="streak-badge small"><FlameIcon /> streak 4</span>
+              <span className="due-pill">due today</span>
+            </div>
+          </div>
+          <div className="preview-mock-card offset">
+            <div className="preview-mock-row">
+              <span className="tag-chip small" style={{ background: '#e7ecf7', color: '#3d5c94' }}>DP</span>
+              <CheckIcon className="preview-mock-check" />
+            </div>
+            <div className="preview-mock-title">Interval DP</div>
+            <div className="preview-mock-bar" />
+            <div className="preview-mock-bar short" />
+            <div className="preview-mock-foot">
+              <span className="muted" style={{ fontSize: 12.5 }}>mastered · 96%</span>
+            </div>
+          </div>
+        </motion.div>
+      </section>
+      </motion.div>
+
+      <section className="landing-steps">
+        {STEPS.map((s, i) => (
+          <motion.div
+            key={s.n}
+            className="step"
+            initial={{ opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: '-40px' }}
+            transition={{ delay: i * 0.1, duration: 0.4 }}
+          >
+            <span className="step-n">{s.n}</span>
+            <h3>{s.title}</h3>
+            <p>{s.body}</p>
+          </motion.div>
+        ))}
       </section>
 
       <section className="landing-features">
@@ -102,10 +165,8 @@ export default function Landing({ onGetStarted, onLogin }) {
               viewport={{ once: true, margin: '-40px' }}
               transition={{ delay: i * 0.08, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
             >
-              <div className="card-tile-head">
-                <span className="tag-chip small" style={{ background: f.tint, color: f.accent }}>
-                  <f.icon />
-                </span>
+              <div className="feature-icon" style={{ background: f.tint, color: f.accent }}>
+                <f.icon />
               </div>
               <h3>{f.title}</h3>
               <p>{f.body}</p>

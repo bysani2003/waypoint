@@ -1,12 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useCachedFetch } from '../useCachedFetch'
 import { motion } from 'motion/react'
-import { api } from '../api'
 import { RowSkeletonList } from './Skeleton'
 import { FlameIcon } from './icons'
 
 export default function ProgressDashboard() {
-  const [data, setData] = useState(null)
-  useEffect(() => { api('/progress').then(setData) }, [])
+  const data = useCachedFetch('/progress')
 
   if (!data) {
     return (

@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useCachedFetch } from '../useCachedFetch'
 import { motion } from 'motion/react'
-import { api } from '../api'
 import { colorForTag } from '../colorTags'
 import AnimatedNumber from './AnimatedNumber'
 import TiltCard from './TiltCard'
@@ -26,16 +25,10 @@ const cardVariants = {
 }
 
 export default function DueToday({ onOpenModule, onGoToTopics, refreshKey }) {
-  const [due, setDue] = useState(null)
-  const [subjects, setSubjects] = useState(null)
-  const [summary, setSummary] = useState(null)
+  const due = useCachedFetch('/due', { deps: [refreshKey] })
+  const subjects = useCachedFetch('/subjects', { deps: [refreshKey] })
+  const summary = useCachedFetch('/summary', { deps: [refreshKey] })
   const [line1, line2] = pickHeadline()
-
-  useEffect(() => {
-    api('/due').then(setDue)
-    api('/summary').then(setSummary)
-    api('/subjects').then(setSubjects)
-  }, [refreshKey])
 
   const today = new Date()
   const dateLabel = today.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase()

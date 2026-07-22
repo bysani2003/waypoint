@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { api } from '../api'
+import { useCachedFetch } from '../useCachedFetch'
 import ProgressRing from './ProgressRing'
 import TiltCard from './TiltCard'
 import { CardSkeletonGrid } from './Skeleton'
@@ -14,14 +15,11 @@ const cardVariants = {
 }
 
 export default function SubjectDashboard({ onOpenSubject }) {
-  const [subjects, setSubjects] = useState(null)
+  const subjects = useCachedFetch('/subjects')
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState(null)
-
-  const reload = () => { api('/subjects').then(setSubjects) }
-  useEffect(reload, [])
 
   const createSubject = async (e) => {
     e.preventDefault()

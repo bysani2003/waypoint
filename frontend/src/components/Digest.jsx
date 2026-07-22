@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { api } from '../api'
+import { useCachedFetch } from '../useCachedFetch'
+import { setCached } from '../apiCache'
 import TiltCard from './TiltCard'
 
 function readTime(summary) {
@@ -8,18 +10,19 @@ function readTime(summary) {
 }
 
 export default function Digest() {
-  const [items, setItems] = useState(null)
+  const cachedItems = useCachedFetch('/digest/today')
+  const [freshItems, setFreshItems] = useState(null)
+  const items = freshItems ?? cachedItems
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
-
-  useEffect(() => { api('/digest/today').then(setItems) }, [])
 
   const refresh = async () => {
     setRefreshing(true)
     setError(null)
     try {
       const fresh = await api('/digest/refresh', { method: 'POST' })
-      setItems(fresh)
+      setCached('/digest/today', fresh)
+      setFreshItems(fresh)
     } catch {
       setError('Could not reach the article sources just now — try again in a moment.')
     } finally {

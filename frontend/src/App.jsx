@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { motion, AnimatePresence } from 'motion/react'
+import { motion } from 'motion/react'
 import { api, getToken, setToken, AuthError } from './api'
+import { clearCache } from './apiCache'
 import DueToday from './components/DueToday'
 import SubjectDashboard from './components/SubjectDashboard'
 import Roadmap from './components/Roadmap'
@@ -121,17 +122,14 @@ function MainApp({ user, onLogout }) {
       </nav>
 
       <main>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={view}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
-          >
-            {content}
-          </motion.div>
-        </AnimatePresence>
+        <motion.div
+          key={view}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+        >
+          {content}
+        </motion.div>
       </main>
     </div>
   )
@@ -146,8 +144,8 @@ export default function App() {
     api('/auth/me').then((u) => { setUser(u); setAuthState('app') }).catch(() => setAuthState('landing'))
   }, [])
 
-  const onAuthed = (u) => { setUser(u); setAuthState('app') }
-  const onLogout = () => { setToken(null); setUser(null); setAuthState('landing') }
+  const onAuthed = (u) => { clearCache(); setUser(u); setAuthState('app') }
+  const onLogout = () => { setToken(null); setUser(null); clearCache(); setAuthState('landing') }
 
   const glowRef = useRef(null)
   const onMouseMove = (e) => {
@@ -172,17 +170,15 @@ export default function App() {
     <div onMouseMove={onMouseMove}>
       <FloatingParticles />
       <div ref={glowRef} className="cursor-glow" />
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={authState}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-        >
-          {inner}
-        </motion.div>
-      </AnimatePresence>
+      <motion.div
+        key={authState}
+        className="content-layer"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.2 }}
+      >
+        {inner}
+      </motion.div>
     </div>
   )
 }
