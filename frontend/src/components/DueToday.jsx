@@ -54,14 +54,15 @@ export default function DueToday({ onOpenModule, onGoToTopics, refreshKey }) {
   return (
     <div className="due-today">
       <motion.div
-        className="hero"
+        className="hero-frame"
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
       >
+      <div className="hero">
         <motion.div
           className="hero-blob"
-          animate={{ x: [0, 18, -10, 0], y: [0, -12, 8, 0] }}
+          animate={{ x: [0, 18, -10, 0], y: [0, -12, 8, 0], scale: [1, 1.08, 0.96, 1] }}
           transition={{ duration: 14, repeat: Infinity, ease: 'easeInOut' }}
         />
         <p className="eyebrow hero-date">{dateLabel}</p>
@@ -135,6 +136,7 @@ export default function DueToday({ onOpenModule, onGoToTopics, refreshKey }) {
             </motion.div>
           </motion.div>
         )}
+      </div>
       </motion.div>
 
       {due === null && <CardSkeletonGrid />}

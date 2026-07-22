@@ -1,17 +1,21 @@
-# DSA Tutor
+# Waypoint
 
-An adaptive DSA/pattern tutor: generates problems per topic, reviews your code,
-Socratically checks whether you actually understand the *pattern* (not just the
-code), and schedules review using spaced repetition (SM-2) so weak topics
-resurface automatically. Also includes a personalized daily tech/AI/DSA digest.
+Pick any subject — Linear Algebra, Spanish, Sliding Window, whatever — and
+Waypoint builds you a real roadmap for it, teaches each step in depth
+(derivations included, not just summaries), lets you practice with hints and a
+full walkthrough after, and schedules review with spaced repetition (SM-2) so
+weak spots resurface automatically. Multi-user: every account gets its own
+subjects, roadmaps, and progress. Also includes a personalized daily tech/AI
+digest.
 
 ## Architecture
 
 ```
-backend/   FastAPI + SQLite. Owns problem generation, code review, Socratic
-           evaluation, spaced repetition scheduling, and the digest builder.
-frontend/  React (Vite), built as an installable PWA — works on desktop and
-           mobile browsers today, and is the base for a native app later.
+backend/   FastAPI + SQLite. Auth (JWT), roadmap generation, lessons, hints,
+           code/text review, spaced repetition scheduling, and the digest
+           builder. All LLM calls go through the free-tier Gemini API.
+frontend/  React (Vite) SPA with a landing page, login/signup, and the main
+           app (Due Today / All Topics / Progress / Digest).
 ```
 
 ## Setup
@@ -23,13 +27,17 @@ python -m venv venv
 source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 echo "GEMINI_API_KEY=your_key_here" > .env   # free key: https://aistudio.google.com/apikey
-uvicorn main:app --reload --port 8000
+uvicorn main:app --port 8000
 ```
 
 Uses the Gemini API (free tier) via `google-genai`. `llm.py` defaults to
 `gemini-flash-lite-latest` — if your key's free-tier quota is 0 on a given
 model (varies by account/region), check `client.models.list()` for other
 models available to your key and swap `MODEL` in `llm.py`.
+
+Auth uses JWT bearer tokens. Set `JWT_SECRET` in `.env` for anything beyond
+local dev (falls back to an insecure default otherwise — fine on your own
+machine, not fine once deployed).
 
 ### Frontend
 ```bash
@@ -39,51 +47,62 @@ npm run dev
 ```
 Visit http://localhost:5173. API calls proxy to the backend on :8000.
 
-On your phone: open the deployed URL in Chrome/Safari, then "Add to Home
-Screen" — the PWA manifest makes it installable like a real app.
+## How it works
 
-## How the learning loop works
-
-1. **Due Today** shows topics whose spaced-repetition schedule says you're due
-   for review (or everything, if nothing's due yet).
-2. Pick a topic → a fresh problem is generated at your current mastery level.
-3. You write a short explanation of the *pattern* in your own words (the
-   Socratic check — this is what catches "I copied the solution but don't
-   really get it").
-4. You write code, submit, and get an LLM code review (correctness, time/space
-   complexity, bugs) plus feedback on your explanation.
-5. Your combined score updates that topic's SM-2 schedule — nail it and the
+1. **Landing page** → create a free account (email + password, no
+   verification step) or log in.
+2. **All Topics** → type in anything you want to learn. An LLM builds an
+   ordered roadmap (fundamentals → advanced) sized to the subject.
+3. Pick a module → read the **lesson** (worked examples, derivations where the
+   subject calls for it, a "go deeper" button, and a related video).
+4. **Practice** → an exercise generated for that module (code or free-text,
+   whichever fits — pick your language for code exercises). Ask for
+   progressive hints if stuck.
+5. Submit → get an LLM review, a Socratic check on your explanation (catches
+   "I copied the solution but don't really get it"), and the full reference
+   walkthrough regardless of how you did.
+6. Your combined score updates that module's SM-2 schedule — nail it and the
    next review is pushed further out; struggle and it comes back tomorrow.
+7. **Due Today** aggregates what's due across every subject; **Progress**
+   shows the full picture.
 
 ## Wiring the daily digest
 
-`POST /digest/build` takes a list of `{title, url, snippet}` articles and has
-Claude filter + summarize them against your stored interests
-(`GET/POST /interests`). It deliberately does NOT scrape news itself, so you
-can point it at whatever source you trust — options:
+`POST /digest/refresh` pulls fresh articles from free, no-API-key sources
+(Hacker News + Dev.to) and has the LLM filter + summarize them against your
+stored interests (`GET/POST /interests`). `POST /digest/build` does the same
+curation step but takes articles you supply yourself, if you'd rather point it
+at a different source (an RSS aggregator, a curated list, etc).
 
-- A small script using Claude's web_search tool to gather AI/DSA headlines,
-  then POST the results here
-- An RSS aggregator (e.g. feedparser) hitting a few blogs/subreddits you like
-- Cron this daily (e.g. `cron` on Linux, or a scheduled Cloudflare Worker
-  given you've already got that stack from other projects)
+## Deployment (Render + Vercel, both free tiers)
+
+1. **Backend on Render** — New → Blueprint → connect this repo. `render.yaml`
+   configures the service automatically. Set `GEMINI_API_KEY` in the
+   dashboard; `JWT_SECRET` is auto-generated by the blueprint. Free tier
+   sleeps after 15 min idle (~30s cold start on the next request).
+2. **Frontend on Vercel** — New Project → import this repo → set **Root
+   Directory** to `frontend` → add env var `VITE_API_URL` = your Render URL →
+   Deploy.
+3. Back in Render, set `ALLOWED_ORIGINS` to your Vercel URL and redeploy to
+   close the CORS wildcard.
+
+Render's free tier has an **ephemeral filesystem** — no persistent disk, so
+the SQLite file resets on every redeploy/restart. Fine for a demo; for real
+persistence, either a paid Render disk or migrating to Render's free Postgres
+(90-day limit) later.
 
 ## Roadmap
 
-- **This weekend:** get the loop above working end-to-end for 2-3 topics.
-- **Next:** add code execution (not just LLM review) via a sandboxed runner
-  (e.g. Judge0 API or a Docker sandbox) so correctness isn't LLM-opinion-only.
+- **Code execution:** add a sandboxed runner (e.g. Judge0 API or Docker) so
+  code correctness isn't LLM-opinion-only.
 - **Mobile native:** the frontend is plain React + fetch calls with no
-  browser-only APIs, so it ports to **React Native / Expo** with the same
-  component logic — the PWA isn't a dead end, it's the shared base.
-- **Generalize beyond DSA:** the topic/problem/attempt/mastery schema isn't
-  DSA-specific — swap `Problem.prompt` generation for "explain this system
-  design concept" or "translate this sentence" and the same spaced-repetition
-  engine works for any subject you want to learn in depth.
+  browser-only APIs, so it ports to React Native / Expo with the same
+  component logic.
 
 ## Notes
 
-- SQLite file (`dsa_tutor.db`) is local and gitignored — don't commit your
-  progress data or API key.
-- `GEMINI_API_KEY` must be set for problem generation, code review, and
-  digest summarization to work.
+- SQLite file (`backend/dsa_tutor.db`) is local and gitignored — don't commit
+  your progress data.
+- `GEMINI_API_KEY` must be set for roadmap/lesson/exercise generation, review,
+  and digest summarization to work.
+- `JWT_SECRET` should be a real random value in any deployed environment.

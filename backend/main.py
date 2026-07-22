@@ -1,16 +1,17 @@
 import os
 from datetime import date, timedelta
 from typing import Optional
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import SQLModel, Session, create_engine, select
 from pydantic import BaseModel
 
-from models import Subject, Module, Lesson, Exercise, Attempt, ModuleMastery, Interest, DigestItem, AppStreak
+from models import User, Subject, Module, Lesson, Exercise, Attempt, ModuleMastery, Interest, DigestItem, AppStreak
 from seed_data import SEED_SUBJECT, SEED_MODULES
 import spaced_repetition as sr
 import llm
 import digest_sources
+import auth
 
 engine = create_engine("sqlite:///dsa_tutor.db", echo=False)
 
@@ -30,24 +31,23 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     SQLModel.metadata.create_all(engine)
-    with Session(engine) as session:
-        existing = session.exec(select(Subject)).first()
-        if not existing:
-            subject = Subject(**SEED_SUBJECT)
-            session.add(subject)
-            session.flush()
-            for i, m in enumerate(SEED_MODULES):
-                module = Module(subject_id=subject.id, order_index=i, **m)
-                session.add(module)
-                session.flush()
-                session.add(ModuleMastery(module_id=module.id))
-            session.commit()
 
 
-def _bump_streak(session: Session) -> AppStreak:
-    streak = session.exec(select(AppStreak)).first()
+def _seed_starter_subject(session: Session, user_id: int):
+    subject = Subject(user_id=user_id, **SEED_SUBJECT)
+    session.add(subject)
+    session.flush()
+    for i, m in enumerate(SEED_MODULES):
+        module = Module(subject_id=subject.id, order_index=i, **m)
+        session.add(module)
+        session.flush()
+        session.add(ModuleMastery(module_id=module.id))
+
+
+def _bump_streak(session: Session, user_id: int) -> AppStreak:
+    streak = session.exec(select(AppStreak).where(AppStreak.user_id == user_id)).first()
     if not streak:
-        streak = AppStreak()
+        streak = AppStreak(user_id=user_id)
     today = date.today()
     if streak.last_active_date == today:
         pass  # already practiced today, no change
@@ -73,6 +73,76 @@ def _module_statuses(session: Session, modules: list[Module]) -> dict[int, tuple
     return out
 
 
+def _owned_subject(session: Session, subject_id: int, user_id: int) -> Subject:
+    subject = session.get(Subject, subject_id)
+    if not subject or subject.user_id != user_id:
+        raise HTTPException(404, "Subject not found")
+    return subject
+
+
+def _owned_module(session: Session, module_id: int, user_id: int) -> tuple[Module, Subject]:
+    module = session.get(Module, module_id)
+    if not module:
+        raise HTTPException(404, "Module not found")
+    subject = _owned_subject(session, module.subject_id, user_id)
+    return module, subject
+
+
+def _owned_exercise(session: Session, exercise_id: int, user_id: int) -> tuple[Exercise, Module, Subject]:
+    exercise = session.get(Exercise, exercise_id)
+    if not exercise:
+        raise HTTPException(404, "Exercise not found")
+    module, subject = _owned_module(session, exercise.module_id, user_id)
+    return exercise, module, subject
+
+
+# ---------- Auth ----------
+
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/auth/signup")
+def signup(req: SignupRequest):
+    email = req.email.strip().lower()
+    if len(req.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+    with Session(engine) as session:
+        existing = session.exec(select(User).where(User.email == email)).first()
+        if existing:
+            raise HTTPException(409, "An account with that email already exists")
+        user = User(email=email, password_hash=auth.hash_password(req.password))
+        session.add(user)
+        session.flush()
+        _seed_starter_subject(session, user.id)
+        session.commit()
+        session.refresh(user)
+        return {"token": auth.create_token(user.id), "user": {"id": user.id, "email": user.email}}
+
+
+@app.post("/auth/login")
+def login(req: LoginRequest):
+    email = req.email.strip().lower()
+    with Session(engine) as session:
+        user = session.exec(select(User).where(User.email == email)).first()
+        if not user or not auth.verify_password(req.password, user.password_hash):
+            raise HTTPException(401, "Incorrect email or password")
+        return {"token": auth.create_token(user.id), "user": {"id": user.id, "email": user.email}}
+
+
+@app.get("/auth/me")
+def me(user_id: int = Depends(auth.get_current_user_id)):
+    with Session(engine) as session:
+        user = auth.get_user_or_404(session, user_id)
+        return {"id": user.id, "email": user.email}
+
+
 # ---------- Subjects & roadmaps ----------
 
 class SubjectRequest(BaseModel):
@@ -80,14 +150,16 @@ class SubjectRequest(BaseModel):
 
 
 @app.post("/subjects")
-def create_subject(req: SubjectRequest):
+def create_subject(req: SubjectRequest, user_id: int = Depends(auth.get_current_user_id)):
     with Session(engine) as session:
-        existing = session.exec(select(Subject).where(Subject.name == req.name)).first()
+        existing = session.exec(
+            select(Subject).where(Subject.user_id == user_id, Subject.name == req.name)
+        ).first()
         if existing:
             raise HTTPException(409, "Subject already exists")
 
         roadmap = llm.generate_roadmap(req.name)
-        subject = Subject(name=req.name, description=roadmap.get("description", ""))
+        subject = Subject(user_id=user_id, name=req.name, description=roadmap.get("description", ""))
         session.add(subject)
         session.flush()
         for i, m in enumerate(roadmap["modules"]):
@@ -108,9 +180,9 @@ def create_subject(req: SubjectRequest):
 
 
 @app.get("/subjects")
-def list_subjects():
+def list_subjects(user_id: int = Depends(auth.get_current_user_id)):
     with Session(engine) as session:
-        subjects = session.exec(select(Subject)).all()
+        subjects = session.exec(select(Subject).where(Subject.user_id == user_id)).all()
         out = []
         for s in subjects:
             modules = session.exec(
@@ -132,11 +204,9 @@ def list_subjects():
 
 
 @app.get("/subjects/{subject_id}/roadmap")
-def get_roadmap(subject_id: int):
+def get_roadmap(subject_id: int, user_id: int = Depends(auth.get_current_user_id)):
     with Session(engine) as session:
-        subject = session.get(Subject, subject_id)
-        if not subject:
-            raise HTTPException(404, "Subject not found")
+        subject = _owned_subject(session, subject_id, user_id)
         modules = session.exec(
             select(Module).where(Module.subject_id == subject_id).order_by(Module.order_index)
         ).all()
@@ -149,11 +219,11 @@ def get_roadmap(subject_id: int):
 
 
 @app.get("/summary")
-def get_summary():
+def get_summary(user_id: int = Depends(auth.get_current_user_id)):
     """Home-hero stats: day streak, due count, and overall mastery across every subject."""
     with Session(engine) as session:
-        streak = session.exec(select(AppStreak)).first()
-        subjects = session.exec(select(Subject)).all()
+        streak = session.exec(select(AppStreak).where(AppStreak.user_id == user_id)).first()
+        subjects = session.exec(select(Subject).where(Subject.user_id == user_id)).all()
         total_modules = 0
         mastered = 0
         due = 0
@@ -178,10 +248,10 @@ def get_summary():
 
 
 @app.get("/due")
-def get_due():
+def get_due(user_id: int = Depends(auth.get_current_user_id)):
     """Modules due for review today across every subject, per spaced repetition schedule."""
     with Session(engine) as session:
-        subjects = session.exec(select(Subject)).all()
+        subjects = session.exec(select(Subject).where(Subject.user_id == user_id)).all()
         out = []
         for s in subjects:
             modules = session.exec(
@@ -198,13 +268,10 @@ def get_due():
 # ---------- Lessons ----------
 
 @app.post("/modules/{module_id}/lesson")
-def get_lesson(module_id: int):
+def get_lesson(module_id: int, user_id: int = Depends(auth.get_current_user_id)):
     """Fetch the cached lesson, generating it on first request."""
     with Session(engine) as session:
-        module = session.get(Module, module_id)
-        if not module:
-            raise HTTPException(404, "Module not found")
-        subject = session.get(Subject, module.subject_id)
+        module, subject = _owned_module(session, module_id, user_id)
 
         lesson = session.exec(select(Lesson).where(Lesson.module_id == module_id)).first()
         if lesson:
@@ -222,12 +289,9 @@ def get_lesson(module_id: int):
 
 
 @app.post("/modules/{module_id}/lesson/deepen")
-def deepen_lesson(module_id: int):
+def deepen_lesson(module_id: int, user_id: int = Depends(auth.get_current_user_id)):
     with Session(engine) as session:
-        module = session.get(Module, module_id)
-        if not module:
-            raise HTTPException(404, "Module not found")
-        subject = session.get(Subject, module.subject_id)
+        module, subject = _owned_module(session, module_id, user_id)
         lesson = session.exec(select(Lesson).where(Lesson.module_id == module_id)).first()
         if not lesson:
             raise HTTPException(404, "Generate the base lesson first")
@@ -250,12 +314,9 @@ class ExerciseRequest(BaseModel):
 
 
 @app.post("/exercises/generate")
-def generate_exercise(req: ExerciseRequest):
+def generate_exercise(req: ExerciseRequest, user_id: int = Depends(auth.get_current_user_id)):
     with Session(engine) as session:
-        module = session.get(Module, req.module_id)
-        if not module:
-            raise HTTPException(404, "Module not found")
-        subject = session.get(Subject, module.subject_id)
+        module, subject = _owned_module(session, req.module_id, user_id)
         difficulty = req.difficulty or module.difficulty
         previous_titles = session.exec(
             select(Exercise.title).where(Exercise.module_id == module.id)
@@ -285,12 +346,9 @@ class HintRequest(BaseModel):
 
 
 @app.post("/exercises/{exercise_id}/hint")
-def get_hint(exercise_id: int, req: HintRequest):
+def get_hint(exercise_id: int, req: HintRequest, user_id: int = Depends(auth.get_current_user_id)):
     with Session(engine) as session:
-        exercise = session.get(Exercise, exercise_id)
-        if not exercise:
-            raise HTTPException(404, "Exercise not found")
-        module = session.get(Module, exercise.module_id)
+        exercise, module, subject = _owned_exercise(session, exercise_id, user_id)
         data = llm.generate_hint(module.name, exercise.prompt, req.hint_level, req.previous_hints)
         return data
 
@@ -303,13 +361,9 @@ class SubmitRequest(BaseModel):
 
 
 @app.post("/exercises/submit")
-def submit_answer(req: SubmitRequest):
+def submit_answer(req: SubmitRequest, user_id: int = Depends(auth.get_current_user_id)):
     with Session(engine) as session:
-        exercise = session.get(Exercise, req.exercise_id)
-        if not exercise:
-            raise HTTPException(404, "Exercise not found")
-        module = session.get(Module, exercise.module_id)
-        subject = session.get(Subject, module.subject_id)
+        exercise, module, subject = _owned_exercise(session, req.exercise_id, user_id)
 
         review = llm.review_answer(module.name, exercise.prompt, exercise.kind, req.answer)
         walkthrough = llm.generate_walkthrough(module.name, exercise.prompt, exercise.kind, exercise.language)
@@ -344,7 +398,7 @@ def submit_answer(req: SubmitRequest):
         ).first()
         mastery = sr.update_mastery(mastery, combined)
         session.add(mastery)
-        app_streak = _bump_streak(session)
+        app_streak = _bump_streak(session, user_id)
 
         session.commit()
         return {
@@ -363,9 +417,9 @@ def submit_answer(req: SubmitRequest):
 # ---------- Progress ----------
 
 @app.get("/progress")
-def get_progress():
+def get_progress(user_id: int = Depends(auth.get_current_user_id)):
     with Session(engine) as session:
-        subjects = session.exec(select(Subject)).all()
+        subjects = session.exec(select(Subject).where(Subject.user_id == user_id)).all()
         out = []
         for s in subjects:
             modules = session.exec(
@@ -395,24 +449,26 @@ class InterestRequest(BaseModel):
 
 
 @app.post("/interests")
-def add_interest(req: InterestRequest):
+def add_interest(req: InterestRequest, user_id: int = Depends(auth.get_current_user_id)):
     with Session(engine) as session:
-        session.add(Interest(keyword=req.keyword))
+        session.add(Interest(user_id=user_id, keyword=req.keyword))
         session.commit()
         return {"ok": True}
 
 
 @app.get("/interests")
-def list_interests():
+def list_interests(user_id: int = Depends(auth.get_current_user_id)):
     with Session(engine) as session:
-        return session.exec(select(Interest).where(Interest.active == True)).all()
+        return session.exec(
+            select(Interest).where(Interest.user_id == user_id, Interest.active == True)
+        ).all()
 
 
 @app.get("/digest/today")
-def get_todays_digest():
+def get_todays_digest(user_id: int = Depends(auth.get_current_user_id)):
     with Session(engine) as session:
         items = session.exec(
-            select(DigestItem).where(DigestItem.date_created == date.today())
+            select(DigestItem).where(DigestItem.user_id == user_id, DigestItem.date_created == date.today())
         ).all()
         return items
 
@@ -421,15 +477,16 @@ class DigestBuildRequest(BaseModel):
     articles: list[dict]  # [{"title":..,"url":..,"snippet":..}] gathered by the caller (e.g. via web search)
 
 
-def _curate_and_store(session: Session, articles: list[dict]) -> list[DigestItem]:
+def _curate_and_store(session: Session, user_id: int, articles: list[dict]) -> list[DigestItem]:
     interests = [i.keyword for i in session.exec(
-        select(Interest).where(Interest.active == True)
+        select(Interest).where(Interest.user_id == user_id, Interest.active == True)
     ).all()] or ["AI", "software engineering", "learning science"]
 
     curated = llm.summarize_digest(articles, interests)
     items = []
     for c in curated:
         item = DigestItem(
+            user_id=user_id,
             headline=c["headline"],
             summary=c["summary"],
             source_url=c.get("source_url"),
@@ -444,18 +501,18 @@ def _curate_and_store(session: Session, articles: list[dict]) -> list[DigestItem
 
 
 @app.post("/digest/build")
-def build_digest(req: DigestBuildRequest):
+def build_digest(req: DigestBuildRequest, user_id: int = Depends(auth.get_current_user_id)):
     """
     Takes raw article candidates (fetch these upstream via web search / RSS -- kept out of the
     backend so it stays free of hardcoded news-source scraping) and has the LLM filter +
     summarize them against the user's interests.
     """
     with Session(engine) as session:
-        return _curate_and_store(session, req.articles)
+        return _curate_and_store(session, user_id, req.articles)
 
 
 @app.post("/digest/refresh")
-def refresh_digest():
+def refresh_digest(user_id: int = Depends(auth.get_current_user_id)):
     """
     Pulls fresh articles from free, no-API-key sources (Hacker News + Dev.to) and curates
     them against the user's interests. No external API key or paid service required.
@@ -464,4 +521,4 @@ def refresh_digest():
     if not articles:
         raise HTTPException(502, "Could not reach any article sources right now")
     with Session(engine) as session:
-        return _curate_and_store(session, articles)
+        return _curate_and_store(session, user_id, articles)

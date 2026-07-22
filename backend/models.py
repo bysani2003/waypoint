@@ -2,6 +2,7 @@
 Database schema for the adaptive tutor.
 
 Core idea:
+- User          -> an account; everything below is scoped to one
 - Subject       -> anything the user wants to learn (e.g. "Linear Algebra", "Spanish", "DSA Patterns")
 - Module        -> one waypoint on a Subject's roadmap (a concept/unit), ordered
 - Lesson        -> in-depth teaching content for a Module, generated once and cached, extendable via "go deeper"
@@ -10,15 +11,24 @@ Core idea:
 - ModuleMastery -> spaced-repetition state per Module (SM-2 style)
 - Interest      -> free-text interests used to personalize the news digest
 - DigestItem    -> a generated daily news/summary entry
+- AppStreak     -> daily practice streak, one row per user
 """
 from datetime import datetime, date
 from typing import Optional
 from sqlmodel import SQLModel, Field
 
 
+class User(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    email: str = Field(index=True, unique=True)
+    password_hash: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class Subject(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(index=True, unique=True)            # e.g. "Linear Algebra"
+    user_id: int = Field(foreign_key="user.id", index=True)
+    name: str                                                # e.g. "Linear Algebra"
     description: str = ""                                   # one-line description, LLM-written on creation
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -79,12 +89,14 @@ class ModuleMastery(SQLModel, table=True):
 
 class Interest(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
     keyword: str = Field(index=True)                            # e.g. "LLM agents", "Rust"
     active: bool = Field(default=True)
 
 
 class DigestItem(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
     date_created: date = Field(default_factory=date.today)
     headline: str
     summary: str
@@ -93,7 +105,8 @@ class DigestItem(SQLModel, table=True):
 
 
 class AppStreak(SQLModel, table=True):
-    """Single-row table tracking the user's daily practice streak (not per-module)."""
+    """Daily practice streak, one row per user."""
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", unique=True)
     last_active_date: Optional[date] = None
     current_streak: int = Field(default=0)

@@ -11,8 +11,8 @@ export default defineConfig({
         name: 'Waypoint — learn anything, in depth',
         short_name: 'Waypoint',
         description: 'Pick any subject, get a roadmap, learn it in depth with spaced repetition',
-        theme_color: '#12162a',
-        background_color: '#12162a',
+        theme_color: '#faf6ec',
+        background_color: '#faf6ec',
         display: 'standalone',
         icons: [
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
