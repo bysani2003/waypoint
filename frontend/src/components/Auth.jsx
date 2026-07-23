@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { motion, AnimatePresence } from 'motion/react'
+import { motion } from 'motion/react'
 import { api, setToken } from '../api'
 import { CompassIcon } from './icons'
 
-export default function Auth({ mode: initialMode = 'signup', onAuthed, onBack }) {
+export default function Auth({ mode: initialMode = 'signup', onAuthed, onBack, pendingSubject }) {
   const [mode, setMode] = useState(initialMode)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -47,22 +47,21 @@ export default function Auth({ mode: initialMode = 'signup', onAuthed, onBack })
           <span>Waypoint</span>
         </div>
 
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={mode}
-            initial={{ opacity: 0, x: mode === 'signup' ? 12 : -12 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <h1>{mode === 'signup' ? 'Create your account' : 'Welcome back'}</h1>
-            <p className="muted">
-              {mode === 'signup'
-                ? 'Free — your own subjects, roadmaps, and progress.'
-                : 'Log in to pick up where you left off.'}
-            </p>
-          </motion.div>
-        </AnimatePresence>
+        <motion.div
+          key={mode}
+          initial={{ opacity: 0, x: mode === 'signup' ? 12 : -12 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.2 }}
+        >
+          <h1>{mode === 'signup' ? 'Create your account' : 'Welcome back'}</h1>
+          <p className="muted">
+            {mode === 'signup'
+              ? pendingSubject
+                ? `Free — we'll set up "${pendingSubject}" as soon as you sign up.`
+                : 'Free — your own subjects, roadmaps, and progress.'
+              : 'Log in to pick up where you left off.'}
+          </p>
+        </motion.div>
 
         <form onSubmit={submit}>
           <label>Email</label>

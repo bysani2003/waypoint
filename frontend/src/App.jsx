@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'motion/react'
 import { api, getToken, setToken, AuthError } from './api'
 import { clearCache } from './apiCache'
@@ -9,7 +9,6 @@ import Lesson from './components/Lesson'
 import Exercise from './components/Exercise'
 import ProgressDashboard from './components/ProgressDashboard'
 import Digest from './components/Digest'
-import FloatingParticles from './components/FloatingParticles'
 import Landing from './components/Landing'
 import Auth from './components/Auth'
 import { CompassIcon, TargetIcon, LayersIcon, ChartIcon, NewspaperIcon, FlameIcon } from './components/icons'
@@ -21,13 +20,18 @@ const TABS = [
   { key: 'digest', label: 'Digest', icon: NewspaperIcon },
 ]
 
-function MainApp({ user, onLogout }) {
+function MainApp({ user, onLogout, initialSubjectId }) {
   const [tab, setTab] = useState('due')
-  const [subjectId, setSubjectId] = useState(null)
+  const [subjectId, setSubjectId] = useState(initialSubjectId ?? null)
   const [module, setModule] = useState(null)
   const [stage, setStage] = useState('roadmap') // 'roadmap' | 'lesson' | 'exercise'
   const [summary, setSummary] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    if (initialSubjectId) setTab('topics')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     api('/summary').then(setSummary).catch((e) => { if (e instanceof AuthError) onLogout() })
@@ -138,47 +142,55 @@ function MainApp({ user, onLogout }) {
 export default function App() {
   const [authState, setAuthState] = useState('checking') // 'checking' | 'landing' | 'login' | 'signup' | 'app'
   const [user, setUser] = useState(null)
+  const [pendingSubject, setPendingSubject] = useState(null)
+  const [initialSubjectId, setInitialSubjectId] = useState(null)
 
   useEffect(() => {
     if (!getToken()) { setAuthState('landing'); return }
     api('/auth/me').then((u) => { setUser(u); setAuthState('app') }).catch(() => setAuthState('landing'))
   }, [])
 
-  const onAuthed = (u) => { clearCache(); setUser(u); setAuthState('app') }
-  const onLogout = () => { setToken(null); setUser(null); clearCache(); setAuthState('landing') }
-
-  const glowRef = useRef(null)
-  const onMouseMove = (e) => {
-    if (glowRef.current) {
-      glowRef.current.style.setProperty('--mx', `${e.clientX}px`)
-      glowRef.current.style.setProperty('--my', `${e.clientY}px`)
+  const onAuthed = async (u) => {
+    clearCache()
+    setUser(u)
+    if (pendingSubject) {
+      try {
+        const subject = await api('/subjects', { method: 'POST', body: JSON.stringify({ name: pendingSubject }) })
+        setInitialSubjectId(subject.id)
+      } catch {
+        // subject creation failed (e.g. duplicate name) -- just land on the normal home screen
+      }
+      setPendingSubject(null)
     }
+    setAuthState('app')
+  }
+  const onLogout = () => { setToken(null); setUser(null); clearCache(); setInitialSubjectId(null); setAuthState('landing') }
+
+  const goToSignup = (subjectName) => {
+    if (subjectName) setPendingSubject(subjectName)
+    setAuthState('signup')
   }
 
   let inner = null
   if (authState === 'checking') {
     inner = null
   } else if (authState === 'landing') {
-    inner = <Landing onGetStarted={() => setAuthState('signup')} onLogin={() => setAuthState('login')} />
+    inner = <Landing onGetStarted={goToSignup} onLogin={() => setAuthState('login')} />
   } else if (authState === 'login' || authState === 'signup') {
-    inner = <Auth mode={authState} onAuthed={onAuthed} onBack={() => setAuthState('landing')} />
+    inner = <Auth mode={authState} onAuthed={onAuthed} onBack={() => setAuthState('landing')} pendingSubject={pendingSubject} />
   } else {
-    inner = <MainApp user={user} onLogout={onLogout} />
+    inner = <MainApp user={user} onLogout={onLogout} initialSubjectId={initialSubjectId} />
   }
 
   return (
-    <div onMouseMove={onMouseMove}>
-      <FloatingParticles />
-      <div ref={glowRef} className="cursor-glow" />
-      <motion.div
-        key={authState}
-        className="content-layer"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.2 }}
-      >
-        {inner}
-      </motion.div>
-    </div>
+    <motion.div
+      key={authState}
+      className="content-layer"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.2 }}
+    >
+      {inner}
+    </motion.div>
   )
 }

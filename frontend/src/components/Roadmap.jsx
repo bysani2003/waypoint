@@ -47,10 +47,10 @@ export default function Roadmap({ subjectId, onOpenModule, onBack }) {
             <h1>{data.subject.name}</h1>
           </div>
           <div className="view-toggle">
-            <button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}>
+            <button className={`toggle-btn ${view === 'map' ? 'active' : ''}`} onClick={() => setView('map')}>
               <CompassIcon /> Map
             </button>
-            <button className={view === 'list' ? 'active' : ''} onClick={() => setView('list')}>
+            <button className={`toggle-btn ${view === 'list' ? 'active' : ''}`} onClick={() => setView('list')}>
               <LayersIcon /> List
             </button>
           </div>
